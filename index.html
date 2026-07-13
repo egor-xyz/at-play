@@ -131,6 +131,17 @@
   .rec .meta .uri{color:var(--sienna);word-break:break-all}
   .atmo-src{font-family:"Space Mono",monospace;font-size:11px;color:var(--ink-soft);opacity:.55;margin-top:16px;word-break:break-all}
   .err{font-family:"Space Mono",monospace;font-size:13px;color:var(--berry)}
+  .group{margin-bottom:30px}
+  .group-label{font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--olive);margin-bottom:12px;display:flex;align-items:baseline;gap:10px}
+  .group-label .nsid{color:var(--ink-soft);opacity:.55;font-size:10px;letter-spacing:.05em}
+  .rec.link{display:block;text-decoration:none;transition:transform .25s cubic-bezier(.2,.9,.3,1),box-shadow .25s}
+  .rec.link:hover{transform:translateX(3px);box-shadow:0 16px 30px -22px rgba(44,33,26,.5)}
+  .rec.pub{display:flex;align-items:center;gap:16px;border-left-color:var(--olive)}
+  .rec.bsky{border-left-color:#3b6ecc}
+  .rec .thumb{width:52px;height:52px;border-radius:12px;object-fit:cover;flex:0 0 auto;background:var(--paper-2)}
+  .rec .cover{width:100%;max-width:260px;border-radius:10px;margin-top:12px;display:block}
+  .rec .sub{font-family:"Space Mono",monospace;font-size:12px;color:var(--sienna);margin-top:3px}
 </style>
 </head>
 <body>
@@ -182,10 +193,10 @@
 
   <section class="atmo">
     <div class="sec-label">// live from my pds <span class="ping">●</span></div>
-    <p class="atmo-note">Fetched live, in your browser, straight from my repo on the AT Protocol —
-      collection <code>xyz.egor.test</code>. No backend, no database. Just my PDS.</p>
-    <div id="records" class="records"><div class="loading">resolving at://…</div></div>
-    <div class="atmo-src">did:plc:fhhelz3lqqwtoiuqge2cwf4g</div>
+    <p class="atmo-note">Everything below is fetched live, in your browser, straight from my repo on the
+      AT Protocol — publications, posts, Bluesky, and raw records. No backend, no database. Just my PDS.</p>
+    <div id="atmo-groups"><div class="loading">resolving at://…</div></div>
+    <div class="atmo-src">did:plc:fhhelz3lqqwtoiuqge2cwf4g · egor-xyz.bsky.social</div>
   </section>
 
   <footer class="rise d6">
@@ -197,45 +208,94 @@
 
 <script>
   const DID = "did:plc:fhhelz3lqqwtoiuqge2cwf4g";
-  const COLLECTION = "xyz.egor.test";
-  const PDS = "https://bsky.social"; // public read, CORS-enabled
-  const box = document.getElementById("records");
+  const HANDLE = "egor-xyz.bsky.social";
+  const PDS = "https://bsky.social"; // public reads, CORS-enabled
+  const wrap = document.getElementById("atmo-groups");
 
   const fmt = (iso) => {
     try { return new Date(iso).toLocaleString(undefined,
       {dateStyle:"medium", timeStyle:"short"}); } catch { return iso; }
   };
-  const esc = (s) => String(s).replace(/[&<>"]/g,
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
     c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const rkeyOf = (uri) => uri.split("/").pop();
+  const blobUrl = (cid) => cid
+    ? `${PDS}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(DID)}&cid=${encodeURIComponent(cid)}`
+    : null;
+  const list = async (collection) => {
+    const url = `${PDS}/xrpc/com.atproto.repo.listRecords`
+      + `?repo=${encodeURIComponent(DID)}&collection=${encodeURIComponent(collection)}&limit=25`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    return (await res.json()).records || [];
+  };
+  const byNewest = (a, b) =>
+    ((b.value.createdAt || b.value.publishedAt || "") + "")
+      .localeCompare((a.value.createdAt || a.value.publishedAt || "") + "");
+
+  // renderers → return an HTML string for one record
+  const renderers = {
+    "site.standard.publication": (r) => {
+      const v = r.value, icon = v.icon?.ref?.$link;
+      return `<a class="rec link pub" href="${esc(v.url)}" target="_blank" rel="noopener">`
+        + (icon ? `<img class="thumb" src="${esc(blobUrl(icon))}" alt="" loading="lazy">` : "")
+        + `<div><div class="msg">${esc(v.name)}</div><div class="sub">${esc(v.url)}</div></div></a>`;
+    },
+    "site.standard.document": (r) => {
+      const v = r.value;
+      const base = v.site ? "https://egor.leaflet.pub" : "";
+      const href = base + (v.path || "");
+      return `<a class="rec link" href="${esc(href)}" target="_blank" rel="noopener">`
+        + `<div class="msg">${esc(v.title || "(untitled)")}</div>`
+        + `<div class="meta"><span>${esc(fmt(v.publishedAt))}</span>`
+        + `<span class="uri">${esc(href)}</span></div></a>`;
+    },
+    "app.bsky.feed.post": (r) => {
+      const v = r.value, ext = v.embed?.external;
+      const href = `https://bsky.app/profile/${encodeURIComponent(HANDLE)}/post/${esc(rkeyOf(r.uri))}`;
+      const body = v.text?.trim() || (ext ? esc(ext.title) : "(post)");
+      const thumb = ext?.thumb?.ref?.$link;
+      return `<a class="rec link bsky" href="${href}" target="_blank" rel="noopener">`
+        + `<div class="msg">${esc(body)}</div>`
+        + (ext ? `<div class="sub">🔗 ${esc(ext.uri)}</div>` : "")
+        + (thumb ? `<img class="cover" src="${esc(blobUrl(thumb))}" alt="" loading="lazy">` : "")
+        + `<div class="meta"><span>${esc(fmt(v.createdAt))}</span></div></a>`;
+    },
+    "xyz.egor.test": (r) => {
+      const v = r.value;
+      return `<article class="rec">`
+        + `<div class="msg">${esc(v.message || "(no message)")}</div>`
+        + `<div class="meta"><span>${esc(fmt(v.createdAt))}</span>`
+        + `<span class="uri">at://…/${esc(rkeyOf(r.uri))}</span></div></article>`;
+    },
+  };
+
+  const GROUPS = [
+    { label: "publications", nsid: "site.standard.publication" },
+    { label: "posts",        nsid: "site.standard.document" },
+    { label: "on bluesky",   nsid: "app.bsky.feed.post" },
+    { label: "raw records",  nsid: "xyz.egor.test" },
+  ];
 
   (async () => {
     try {
-      const url = `${PDS}/xrpc/com.atproto.repo.listRecords`
-        + `?repo=${encodeURIComponent(DID)}&collection=${encodeURIComponent(COLLECTION)}&limit=20`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const { records = [] } = await res.json();
-      if (!records.length) { box.innerHTML = '<div class="loading">no records yet.</div>'; return; }
-
-      records.sort((a, b) =>
-        (b.value.createdAt || "").localeCompare(a.value.createdAt || ""));
-
-      box.innerHTML = "";
-      records.forEach((r, i) => {
-        const rkey = r.uri.split("/").pop();
-        const el = document.createElement("article");
-        el.className = "rec";
-        el.style.animationDelay = (i * 0.08) + "s";
-        el.innerHTML =
-          `<div class="msg">${esc(r.value.message || "(no message)")}</div>`
-          + `<div class="meta">`
-          +   `<span>${esc(fmt(r.value.createdAt))}</span>`
-          +   `<span class="uri">at://…/${esc(rkey)}</span>`
-          + `</div>`;
-        box.appendChild(el);
+      const results = await Promise.all(GROUPS.map(g => list(g.nsid)));
+      let html = "", delay = 0, total = 0;
+      GROUPS.forEach((g, gi) => {
+        const recs = results[gi].sort(byNewest);
+        if (!recs.length) return;
+        total += recs.length;
+        html += `<div class="group"><div class="group-label">${esc(g.label)}`
+          + `<span class="nsid">${esc(g.nsid)}</span></div>`;
+        recs.forEach(r => {
+          const item = (renderers[g.nsid] || renderers["xyz.egor.test"])(r);
+          html += item.replace('class="rec', `style="animation-delay:${(delay++ * 0.07).toFixed(2)}s" class="rec`);
+        });
+        html += `</div>`;
       });
+      wrap.innerHTML = total ? html : '<div class="loading">no records yet.</div>';
     } catch (e) {
-      box.innerHTML = `<div class="err">couldn't reach the Atmosphere: ${esc(e.message)}</div>`;
+      wrap.innerHTML = `<div class="err">couldn't reach the Atmosphere: ${esc(e.message)}</div>`;
     }
   })();
 </script>
