@@ -111,6 +111,26 @@
   .d1{animation-delay:.05s}.d2{animation-delay:.18s}.d3{animation-delay:.31s}
   .d4{animation-delay:.44s}.d5{animation-delay:.57s}.d6{animation-delay:.70s}
   @media (prefers-reduced-motion:reduce){.rise{animation:none;opacity:1;transform:none}}
+
+  /* ---- live from PDS ---- */
+  section.atmo{padding:20px 0 90px}
+  .ping{color:var(--olive);font-size:9px;animation:blink 1.8s ease-in-out infinite;vertical-align:middle}
+  @keyframes blink{50%{opacity:.25}}
+  .atmo-note{font-size:16px;color:var(--ink-soft);max-width:56ch;margin-bottom:26px}
+  .atmo-note code{font-family:"Space Mono",monospace;font-size:13px;background:rgba(110,122,74,.14);
+    padding:1px 6px;border-radius:5px;color:var(--olive)}
+  .records{display:flex;flex-direction:column;gap:12px}
+  .loading{font-family:"Space Mono",monospace;font-size:13px;color:var(--ink-soft);opacity:.7}
+  .rec{border:1px solid var(--line);border-left:3px solid var(--sienna);border-radius:0 14px 14px 0;
+    padding:18px 22px;background:linear-gradient(160deg,rgba(255,255,255,.5),rgba(244,228,206,.3));
+    opacity:0;transform:translateX(-10px);animation:slide .6s cubic-bezier(.2,.8,.2,1) forwards}
+  @keyframes slide{to{opacity:1;transform:none}}
+  .rec .msg{font-family:"Fraunces",serif;font-size:21px;line-height:1.25;color:var(--ink)}
+  .rec .meta{font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.04em;color:var(--ink-soft);
+    margin-top:10px;display:flex;flex-wrap:wrap;gap:6px 16px}
+  .rec .meta .uri{color:var(--sienna);word-break:break-all}
+  .atmo-src{font-family:"Space Mono",monospace;font-size:11px;color:var(--ink-soft);opacity:.55;margin-top:16px;word-break:break-all}
+  .err{font-family:"Space Mono",monospace;font-size:13px;color:var(--berry)}
 </style>
 </head>
 <body>
@@ -160,11 +180,64 @@
     </div>
   </section>
 
+  <section class="atmo">
+    <div class="sec-label">// live from my pds <span class="ping">●</span></div>
+    <p class="atmo-note">Fetched live, in your browser, straight from my repo on the AT Protocol —
+      collection <code>xyz.egor.test</code>. No backend, no database. Just my PDS.</p>
+    <div id="records" class="records"><div class="loading">resolving at://…</div></div>
+    <div class="atmo-src">did:plc:fhhelz3lqqwtoiuqge2cwf4g</div>
+  </section>
+
   <footer class="rise d6">
     <span>© 2026 egor-xyz</span>
     <span>made with warmth &amp; <a href="https://about.leaflet.pub">Leaflet</a></span>
   </footer>
 
 </div>
+
+<script>
+  const DID = "did:plc:fhhelz3lqqwtoiuqge2cwf4g";
+  const COLLECTION = "xyz.egor.test";
+  const PDS = "https://bsky.social"; // public read, CORS-enabled
+  const box = document.getElementById("records");
+
+  const fmt = (iso) => {
+    try { return new Date(iso).toLocaleString(undefined,
+      {dateStyle:"medium", timeStyle:"short"}); } catch { return iso; }
+  };
+  const esc = (s) => String(s).replace(/[&<>"]/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+  (async () => {
+    try {
+      const url = `${PDS}/xrpc/com.atproto.repo.listRecords`
+        + `?repo=${encodeURIComponent(DID)}&collection=${encodeURIComponent(COLLECTION)}&limit=20`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { records = [] } = await res.json();
+      if (!records.length) { box.innerHTML = '<div class="loading">no records yet.</div>'; return; }
+
+      records.sort((a, b) =>
+        (b.value.createdAt || "").localeCompare(a.value.createdAt || ""));
+
+      box.innerHTML = "";
+      records.forEach((r, i) => {
+        const rkey = r.uri.split("/").pop();
+        const el = document.createElement("article");
+        el.className = "rec";
+        el.style.animationDelay = (i * 0.08) + "s";
+        el.innerHTML =
+          `<div class="msg">${esc(r.value.message || "(no message)")}</div>`
+          + `<div class="meta">`
+          +   `<span>${esc(fmt(r.value.createdAt))}</span>`
+          +   `<span class="uri">at://…/${esc(rkey)}</span>`
+          + `</div>`;
+        box.appendChild(el);
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="err">couldn't reach the Atmosphere: ${esc(e.message)}</div>`;
+    }
+  })();
+</script>
 </body>
 </html>
